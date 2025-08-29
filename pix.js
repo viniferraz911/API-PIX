@@ -1,25 +1,41 @@
 // api/pix.js
 import axios from "axios";
 
-const ALLOWED_ORIGINS = [
+// Origens fixas (produção)
+const FIXED_ORIGINS = new Set([
   "https://casinhalalay.online",
   "https://www.casinhalalay.online",
-  // se você visualizar prévias da Lovable em outro domínio, adicione aqui
-  // "https://SEU-DOMINIO-DE-PREVIEW"
-];
+]);
 
-export default async function handler(req, res) {
+// Função que valida origens dinâmicas de sandbox da Lovable
+function isAllowedOrigin(origin = "") {
+  if (FIXED_ORIGINS.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    // libera qualquer subdomínio *.sandbox.lovable.dev
+    if (url.hostname.endsWith(".sandbox.lovable.dev")) return true;
+  } catch {
+    /* origin vazio ou inválido */
+  }
+  return false;
+}
+
+function applyCors(req, res) {
   const origin = req.headers.origin || "";
-  if (ALLOWED_ORIGINS.includes(origin)) {
+  if (isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Max-Age", "86400");
+}
 
+export default async function handler(req, res) {
+  applyCors(req, res);
+
+  // Preflight
   if (req.method === "OPTIONS") {
-    // preflight
     return res.status(200).end();
   }
 
@@ -30,11 +46,14 @@ export default async function handler(req, res) {
   try {
     const { amount, chave, descricao } = req.body;
 
+    // ⬇️ Ajuste o endpoint conforme a documentação oficial da WiteTec, se for diferente:
     const response = await axios.post(
-      "https://api.witetec.com/v1/pix", // confirme na doc se este é o endpoint correto
+      "https://api.witetec.com/v1/pix",
       {
         amount,        // em centavos
-        pixKey: chave, // chave Pix do recebedor (ou remova se sua conta tiver chave padrão)
+        // Se sua conta WiteTec exigir chave no payload, mantenha a linha abaixo.
+        // Caso sua conta use "chave padrão", você pode remover o campo pixKey.
+        pixKey: chave,
         description: descricao
       },
       {
@@ -48,8 +67,8 @@ export default async function handler(req, res) {
 
     return res.status(200).json(response.data);
   } catch (error) {
-    const payload = error.response?.data || { message: error.message };
-    console.error("Erro WiteTec:", payload);
-    return res.status(500).json({ error: "Erro ao gerar Pix", details: payload });
+    const details = error.response?.data || { message: error.message };
+    console.error("Erro WiteTec:", details);
+    return res.status(500).json({ error: "Erro ao gerar Pix", details });
   }
 }
